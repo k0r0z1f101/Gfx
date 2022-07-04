@@ -7,8 +7,8 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: BDeB_MakeItShiny
-  m_Shader: {fileID: 4800000, guid: 6586f72e6a6eba54e9d99c945f06e5ec, type: 3}
+  m_Name: BDeB_MakeItShiny_IBL 1
+  m_Shader: {fileID: 4800000, guid: 62b2e83b5a5cb3d45ba8bef13541582a, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords: []
@@ -23,13 +23,14 @@ Material:
   m_SavedProperties:
     serializedVersion: 3
     m_TexEnvs:
-    - _BasecolorMap:
-        m_Texture: {fileID: 2800000, guid: 03f863923ba4d6e42bdf03118ad1b952, type: 3}
+    - _EnvLightingMap:
+        m_Texture: {fileID: 8900000, guid: 3b45e6b597f05c14e9cbc2e4a206f405, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
-    - _Metalness: 0.556
-    - _Roughness: 0.215
-    m_Colors: []
+    - _Metalness: 1
+    - _Roughness: 0.01
+    m_Colors:
+    - _BaseColor: {r: 1, g: 1, b: 1, a: 1}
   m_BuildTextureStacks: []

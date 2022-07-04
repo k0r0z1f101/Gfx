@@ -3,15 +3,13 @@ Shader "BDeB/MakeItShiny"
     Properties
     {
         _BasecolorMap("BasecolorMap", 2D) = "white" {}
+        _NormalMap("NormalMap", 2D) = "white" {}
         _Metalness("Metalness", Range(0.0, 1.0)) = 0.0
         _Roughness("Roughness", Range(0.01, 1.0)) = 0.0
     }
     SubShader
     {
-        Tags
-        {
-            "RenderPipeline" = "HDRenderPipeline" "RenderType" = "Opaque"
-        }
+        Tags{ "RenderPipeline" = "HDRenderPipeline" "RenderType" = "Opaque" }
         LOD 100
 
         HLSLINCLUDE
@@ -39,6 +37,7 @@ Shader "BDeB/MakeItShiny"
             float2 uv : TEXCOORD0;
             float3 positionWS : TEXCOORD1;
             float3 normalWS : TEXCOORD2;
+            float3 tangentWS : TEXCOORD3;
             UNITY_VERTEX_INPUT_INSTANCE_ID
         };
 
@@ -47,6 +46,12 @@ Shader "BDeB/MakeItShiny"
         float4 _BasecolorMap_ST;
         float4 _BasecolorMap_TexelSize;
         float4 _BasecolorMap_MipInfo;
+
+        TEXTURE2D(_NormalMap);
+        SAMPLER(sampler_NormalMap);
+        float4 _NormalMap_ST;
+        float4 _NormalMap_TexelSize;
+        float4 _NormalMap_MipInfo;
 
         float4 _LightPosWS;
         float4 _LightIntensity;
@@ -69,6 +74,7 @@ Shader "BDeB/MakeItShiny"
             o.uv = TRANSFORM_TEX(v.uv, _BasecolorMap);
             o.positionWS = TransformObjectToWorld(v.vertex.xyz);
             o.normalWS = TransformObjectToWorldNormal(v.normalOS);
+            o.tangentWS = TransformObjectToWorldNormal(v.tangentOS);
 
             return o;
         }
@@ -78,47 +84,44 @@ Shader "BDeB/MakeItShiny"
             return diffuseAlbedo / PI;
         }
 
-        float3 Fresnel(float f0, float cos0)
-        {            
-            //FSchlick(v,h)=F0+(1−F0)(1−(v⋅h))5
-            
+        float3 Fresnel(float3 f0, float cos0)
+        {
             float one_cos0 = 1.0f - cos0;
             float one_cos02 = one_cos0 * one_cos0;
             float one_cos04 = one_cos02 * one_cos02;
             float one_cos05 = one_cos04 * one_cos0;
-            
+
             return f0 + (1.0f - f0) * one_cos05;
         }
 
-        float3 Reitz(float roughness, float cos0h)
+        float D_GGX(float cos0, float a2)
         {
-            //DGGX(m)=α2 / π((n⋅m)2(α2−1)+1)2
-            
-            float rough02 = roughness * roughness;
-            float rough04 = rough02 * rough02;
-            
-            float cos0h02 = cos0h * cos0h;
+            float cos02 = cos0 * cos0;
+            float denum = cos02 * (a2 - 1.0f) + 1.0f;
 
-            float rough04min1 = (rough04 - 1.0f);
-
-            float cos0h_rough = (cos0h02 * rough04min1) + 1.0f;
-
-            return rough04 / (PI * (cos0h_rough * cos0h_rough));
+            return a2 / (PI * denum * denum + 1e-6f);
         }
 
-        float3 SpecularBRDF(float3 specularAlbedo, float roughness, float cos0i, float cos0o, float cos0h, float cos0d)
+        float G_GGX(float _cos0, float a2)
         {
-            //v: wo
-            //l: wi
-            //n: normal
-            //h: wh = normalize(wo + wi)
+            float cos0 = max(_cos0, 0.0f);
+            return 2.0f * cos0 / (cos0 + sqrt(a2 + (1.0f - a2) * Sq(cos0)));
+        }
 
-            float F = Fresnel(specularAlbedo, cos0d);
+        float3 SpecularBRDF(float3 specularAlbedo,
+                            float roughness, float cos0i, float cos0o, float cos0h, float cos0oh, float cos0d)
+        {
+            float a = roughness * roughness;
+            float a2 = a * a;
 
-            float D = Reitz(roughness, cos0h);
+            float3 F = Fresnel(specularAlbedo, cos0d);
+            float D = D_GGX(cos0h, a2);
+            float G1o = G_GGX(cos0o, a2);
+            float G1i = G_GGX(cos0i, a2);
+            float G2 = G1o * G1i;
+            float V = G2 / (4.0f * abs(cos0o) * abs(cos0i) + 1e-4); // == G/(4*dot(wi, n)*dot(wo, n))
 
-
-            return F * D;
+            return F * D * V;
         }
 
         float4 frag(v2f i) : SV_Target
@@ -127,17 +130,28 @@ Shader "BDeB/MakeItShiny"
 
             float3 positionWS = i.positionWS.xyz;
             float3 normalWS = normalize(i.normalWS.xyz);
+            float3 tangentWS = normalize(i.tangentWS);
+            float3 bitangentWS = normalize(cross(normalWS, tangentWS));
 
+            float3 normapMap = _NormalMap.Sample(sampler_NormalMap, i.uv).rgb;
+            // [0; 1] => [-1; 1]
+            float3 normalTS = normalize(2.0f * normapMap.xyz - 1.0f);
+            float3x3 transform = { tangentWS, bitangentWS, normalWS };
+            float3 normalWSFromTexture = mul(transform, normalTS * float3(-1.0f, 1.0f,  1.0f));
+            //float3 normalWSFromTexture = mul(transform, normalTS);
+            normalWS = normalize(normalWS + normalWSFromTexture);
+            
             // Transform AbsoluteWorldSpace to CameraRelativeWorldSpace
             float3 lightRWS = GetCameraRelativePositionWS(_LightPosWS.xyz);
 
             float3 deltaLight = lightRWS - positionWS;
-            // Vector normalise entre vers la light
+            // Vector normalize entre vers la light
             // SK: l
             float3 wi = normalize(deltaLight);
-            // Vector normalise entre vers la camera/eye
+            // Vector normalize entre vers la camera/eye
             // SK: v
-            float3 wo = normalize(_WorldSpaceCameraPos - positionWS);
+            //float3 wo = GetCurrentViewPosition();
+            float3 wo = normalize(-positionWS.xyz);
 
             // Half-Space Vector
             float3 wh = normalize(wi + wo);
@@ -149,7 +163,9 @@ Shader "BDeB/MakeItShiny"
 
             // Useful for Fresnel
             float cos0d = dot(wh, wi);
-            // Useful for G_GGX
+            float cos0oh = dot(wh, wo);
+
+            // Useful for GGX
             float cos0h = dot(normalWS, wh);
             float cos0o = dot(normalWS, wo);
 
@@ -161,26 +177,23 @@ Shader "BDeB/MakeItShiny"
 
             float3 baseColor = _BasecolorMap.Sample(sampler_BasecolorMap, i.uv).rgb;
 
-            //float3 diffuseAlbedo    = baseColor * (1.0f - _Metalness);
-            float3 diffuseAlbedo = lerp(baseColor, 0.06f, _Metalness);
-            float3 specularAlbedo = baseColor * _Metalness;
+            float3 diffuseAlbedo    = baseColor * (1.0f - _Metalness);
+            float3 specularAlbedo   = lerp(0.06f, baseColor, _Metalness);
 
-            float3 diffuseBRDF = DiffuseBRDF(diffuseAlbedo);
-            float3 specularBRDF = SpecularBRDF(specularAlbedo, _Roughness, cos0i, cos0o, cos0h, cos0d);
+            float3 diffuseBRDF  = DiffuseBRDF(diffuseAlbedo);
+            float3 specularBRDF = SpecularBRDF(specularAlbedo, _Roughness, cos0i, cos0o, cos0h, cos0oh, cos0d);
 
-            float3 diffuseValue = Lwi * cos0i_ * (diffuseBRDF + specularBRDF);
+            float3 lighting = Lwi * cos0i_ * (diffuseBRDF + specularBRDF);
 
-            return float4(diffuseValue.rgb, 1.0f);
+            return float4(lighting.rgb, 1.0f);
+            //return float4(normalWS.rgb, 1.0f);
         }
         ENDHLSL
 
         Pass
         {
             Name "BdeB_Shiny"
-            Tags
-            {
-                "LightMode" = "ForwardOnly"
-            }
+            Tags{ "LightMode" = "ForwardOnly" }
 
             ZTest LEqual
             ZWrite On

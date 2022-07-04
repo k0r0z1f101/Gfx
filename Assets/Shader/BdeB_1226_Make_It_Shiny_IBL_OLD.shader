@@ -146,15 +146,17 @@ Shader "BDeB/MakeItShiny_IBL"
         }
 
         float3 EnvBRDF0( float3 specularColor, float roughness, float ndotv )
-        {            
-            return BdeB_Fresnel(specularColor, ndotv);
+        {
+			// Faux!
+            return float3(1.0f.xxx);
         }
         float3 EnvBRDF1( float3 specularColor, float roughness, float ndotv )
         {
+            float x = (1.0f - roughness);
             float4 p0 = float4( 0.5745, 1.548, -0.02397, 1.301 );
             float4 p1 = float4( 0.5753, -0.2511, -0.02066, 0.4755 );
          
-            float4 t = (1.0f - roughness) * p0 + p1;
+            float4 t = x * p0 + p1;
          
             float bias = saturate( t.x * min( t.y, exp2( -7.672 * ndotv ) ) + t.z );
             float delta = saturate( t.w );
@@ -165,7 +167,9 @@ Shader "BDeB/MakeItShiny_IBL"
         }
         float3 EnvBRDF2( float3 specularColor, float roughness, float ndotv )
         {
-			float x = (1.0f - roughness);
+            //float gloss = (1.0f - roughness) * (1.0f - roughness) * (1.0f - roughness) * (1.0f - roughness);
+            float x = (1.0f - roughness);
+            float y = ndotv;
          
             float b1 = -0.1688;
             float b2 = 1.895;
@@ -173,8 +177,7 @@ Shader "BDeB/MakeItShiny_IBL"
             float b4 = -4.853;
             float b5 = 8.404;
             float b6 = -5.069;
-            float bias = saturate( min( b1 * x + b2 * x * x
-                                        , b3 + b4 * ndotv + b5 * ndotv * ndotv + b6 * ndotv * ndotv * ndotv ) );
+            float bias = saturate( min( b1 * x + b2 * x * x, b3 + b4 * y + b5 * y * y + b6 * y * y * y ) );
          
             float d0 = 0.6045;
             float d1 = 1.699;
@@ -183,8 +186,7 @@ Shader "BDeB/MakeItShiny_IBL"
             float d4 = 1.404;
             float d5 = 0.1939;
             float d6 = 2.661;
-            float delta = saturate( d0 + d1 * x + d2 * ndotv + d3 * x * x
-                                    + d4 * x * ndotv + d5 * ndotv * ndotv + d6 * x * x * x );
+            float delta = saturate( d0 + d1 * x + d2 * y + d3 * x * x + d4 * x * y + d5 * y * y + d6 * x * x * x );
             float scale = delta - bias;
          
             bias *= saturate( 50.0 * specularColor.y );
@@ -249,12 +251,12 @@ Shader "BDeB/MakeItShiny_IBL"
             _EnvLightingMap.GetDimensions( mipLevel, width, height, mipCount );
 
             #define ENABLE_REF_IBL 0
-            #define ENABLE_ENV_BRDF_APPROX_0 1
+            #define ENABLE_ENV_BRDF_APPROX_0 0
             #define ENABLE_ENV_BRDF_APPROX_1 0
-            #define ENABLE_ENV_BRDF_APPROX_2 0
+            #define ENABLE_ENV_BRDF_APPROX_2 1
 
             // Add Indirect Specular:
-            float3 wr = -reflect(wo, normalWS);
+            float3 wr = reflect(wo, -normalWS);
             float mipSelector = 1.0f - pow( 1.0f - roughness, 4 );
             float3 indirectSpecular = SAMPLE_TEXTURECUBE_LOD( _EnvLightingMap, sampler_EnvLightingMap, wr, mipCount * mipSelector ).rgb;
             #if ENABLE_ENV_BRDF_APPROX_0
