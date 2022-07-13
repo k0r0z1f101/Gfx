@@ -1,5 +1,12 @@
 Shader "FullScreen/NewFullScreenCustomPass"
 {
+    Properties
+    {
+        _Saturate("SaturateEdges", Range(0.0, 1.0)) = 1.0
+        _FogAttenuation("FogAttenuation", Range(0.0, 1.0)) = 0.0
+        _Color("FogColor", Color) = (0.1, 0.1, 0.1, 1.0)        
+    }
+    
     HLSLINCLUDE
     #pragma vertex Vert
 
@@ -7,6 +14,10 @@ Shader "FullScreen/NewFullScreenCustomPass"
     #pragma only_renderers d3d11 playstation xboxone xboxseries vulkan metal switch
 
     #include "Packages/com.unity.render-pipelines.high-definition/Runtime/RenderPipeline/RenderPass/CustomPass/CustomPassCommon.hlsl"
+
+    float _Saturate;
+    float _FogAttenuation;
+    float4 _Color;
 
     // The PositionInputs struct allow you to retrieve a lot of useful information for your fullScreenShader:
     // struct PositionInputs
@@ -67,7 +78,7 @@ Shader "FullScreen/NewFullScreenCustomPass"
             1.0f / 16, 2.0f / 16, 1.0f / 16
         };
 
-        bool useGblur = true;
+        bool useGblur = false;
         if(useGblur)
         {
             float blurred = 0.0f;
@@ -98,8 +109,9 @@ Shader "FullScreen/NewFullScreenCustomPass"
                 }
             }
 
-            edge = saturate(edge);
-            return float4(edge.xxx, 1.0f);
+            edge = saturate(edge) * 512.0f * _Saturate;
+            //edge *= 120.0f * _Saturate;
+            return float4(lerp(color, _Color, 1.0f) * edge.xxx, 1.0f);
         }
         
         //return float4(NormalizeLinearDepth(posInput.linearDepth).xxx, 1.0f);
